@@ -64,6 +64,57 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+// Add this route to periodically fetch messages from nRF Cloud
+app.get('/fetch-messages', async (req, res) => {
+    try {
+        await connectToDatabase();
+
+        const end = new Date();
+        const start = new Date(end.getTime() - 5 * 60 * 1000); // last 5 minutes
+
+        const response = await fetch(
+            `https://api.nrfcloud.com/v1/messages?` +
+            `inclusiveStart=${start.toISOString()}&` +
+            `exclusiveEnd=${end.toISOString()}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.NRF_CLOUD_API_KEY}`
+                }
+            }
+        );
+
+        const data = await response.json();
+        let saved = 0;
+
+        for (const msg of (data.items || [])) {
+            if (msg.message?.appId === 'GROUND_FIX' || msg.message?.appId === 'GNSS' || msg.message?.appId === 'LOCATION') {
+                const loc = msg.message?.data;
+                if (loc?.lat && (loc?.lon || loc?.lng)) {
+                    await LocationLog.updateOne(
+                        { deviceId: msg.deviceId, timestamp: new Date(msg.receivedAt) },
+                        {
+                            deviceId: msg.deviceId,
+                            timestamp: new Date(msg.receivedAt),
+                            lat: loc.lat,
+                            lng: loc.lon || loc.lng,
+                            accuracy: loc.uncertainty,
+                            source: 'nrf-cloud',
+                            raw: msg
+                        },
+                        { upsert: true }
+                    );
+                    saved++;
+                }
+            }
+        }
+
+        res.status(200).json({ fetched: data.items?.length || 0, saved });
+    } catch (error) {
+        console.error("Error fetching messages:", error);
+        res.status(500).send("Error");
+    }
+});
+
 app.get('/', (req, res) => {
     res.send("Thingy:91 Receiver is Live!");
 });
