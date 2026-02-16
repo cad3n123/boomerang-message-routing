@@ -111,7 +111,7 @@ app.get('/fetch-messages', async (req, res) => {
         res.status(200).json({ fetched: data.items?.length || 0, saved });
     } catch (error) {
         console.error("Error fetching messages:", error);
-        res.status(500).send("Error");
+        res.status(500).json({ error: error.message, stack: error.stack });
     }
 });
 
